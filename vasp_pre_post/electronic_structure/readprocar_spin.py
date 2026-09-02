@@ -1,0 +1,167 @@
+#!/edahome/y00201/software/anaconda3/bin/python
+import numpy as np
+import copy
+
+print('reading PROCAR')
+f=open('PROCAR')
+lines=f.readlines()
+f.close()
+print('reading PROCAR complete')
+nkpoints=int(lines[1].split()[3])
+nbands=int(lines[1].split()[7])
+nions=int(lines[1].split()[11])
+
+# bcycle=(nions+1)+4
+# kcycle=bcycle*nbands+3
+tmp=[]
+for num,line in enumerate(lines):
+    t=line.split()
+    if t == []:
+        continue
+    elif t[0] == 'band':
+        tmp.append(num)
+    if len(tmp) == 2:
+        break
+bcycle=tmp[1]-tmp[0]
+
+tmp=[]
+for num,line in enumerate(lines):
+    t=line.split()
+    if t == []:
+        continue
+    elif t[0] == 'k-point':
+        tmp.append(num)
+    if len(tmp) == 2:
+        break
+kcycle=tmp[1]-tmp[0]
+
+kpoints=[]
+####spin up
+lines=lines[3:]
+energy_up=[]
+pro_up=[]
+for i in range(nkpoints):
+    #kpoints.append([float(i) for i in lines[i*kcycle].split()[3:6]])
+    kpoints.append([float(lines[i*kcycle][19:30]),float(lines[i*kcycle][30:41]),float(lines[i*kcycle][41:52])])
+    klines=lines[2+i*kcycle:(i+1)*kcycle]
+    print('kpoints (up) '+str(i+1))
+    for j in range(nbands):
+        t=klines[(j*bcycle):(j+1)*bcycle]
+        energy_up.append(float(t[0].split()[4]))
+        blines=klines[(3+j*bcycle):(j+1)*bcycle]
+        pro_up.append(blines[0:nions])
+        
+lines=lines[kcycle*nkpoints+1:]
+energy_dw=[]
+pro_dw=[]
+for i in range(nkpoints):
+    # kpoints.append([float(i) for i in lines[i*kcycle].split()[3:6]])
+    klines=lines[2+i*kcycle:(i+1)*kcycle]
+    print('kpoints (dw)'+str(i+1))
+    for j in range(nbands):
+        t=klines[(j*bcycle):(j+1)*bcycle]
+        energy_dw.append(float(t[0].split()[4]))
+        blines=klines[(3+j*bcycle):(j+1)*bcycle]
+        pro_dw.append(blines[0:nions])   
+        
+data={'K':[],'E_up':[],'E_dw':[]}
+pband={}
+for i in range(nions):
+    pband[i]={}
+    pband[i]['up']=[]
+    pband[i]['dw']=[]
+    print('ions: '+str(i))
+    for j in range(nbands):
+        for k in range(nkpoints):
+            line=k*nbands+j
+            pro_i_up=list(map(float,pro_up[line][i].split()))
+            pro_i_dw=list(map(float,pro_dw[line][i].split()))
+            pband[i]['up'].append(pro_i_up)
+            pband[i]['dw'].append(pro_i_dw)
+
+for i in range(nbands):
+    for j in range(nkpoints):
+        data['E_up'].append(energy_up[j*nbands+i])
+        data['E_dw'].append(energy_dw[j*nbands+i])
+data['E_up']=np.array(data['E_up'])
+data['E_dw']=np.array(data['E_dw'])
+for i in range(nions):
+    pband[i]['up']=np.array(pband[i]['up'])
+    pband[i]['dw']=np.array(pband[i]['dw'])
+    pband[i]['up']=np.delete(pband[i]['up'],0,axis=1)
+    pband[i]['dw']=np.delete(pband[i]['dw'],0,axis=1)
+    # np.savetxt(str(i+1)+'_up.dat',pband[i]['up'],'%.3f')
+    # np.savetxt(str(i+1)+'_dw.dat',pband[i]['dw'],'%.3f')
+
+f=open('POSCAR')
+lines=f.readlines()
+f.close()
+a=[x for x in lines[2].split()]
+b=[x for x in lines[3].split()]
+c=[x for x in lines[4].split()]
+a11=float(a[0])
+a12=float(a[1])
+a13=float(a[2])
+a21=float(b[0])
+a22=float(b[1])
+a23=float(b[2])
+a31=float(c[0])
+a32=float(c[1])
+a33=float(c[2])
+V=a11*(a22*a33-a23*a32)-a12*(a21*a33-a23*a31)+a13*(a21*a32-a22*a31)
+
+b11=(a22*a33-a23*a32)/V
+b12=-(a21*a33-a23*a31)/V
+b13=(a21*a32-a31*a22)/V
+
+b21=(a32*a13-a33*a12)/V
+b22=-(a31*a13-a33*a11)/V
+b23=(a31*a12-a32*a11)/V
+
+b31=(a12*a23-a13*a22)/V
+b32=(a11*a23-a13*a21)/V
+b33=(a11*a22-a12*a21)/V
+
+recipro_lattice=np.array([[b11,b12,b13],[b21,b22,b23],[b31,b32,b33]])
+
+data['K']=np.matmul(kpoints,recipro_lattice)
+x=np.zeros(len(data['K']))
+for i in range(len(data['K'])-1):
+    x[i+1]=x[i]+np.linalg.norm(data['K'][i+1]-data['K'][i])
+x=x.reshape(len(x),1)
+x_tmp=copy.deepcopy(x)
+x=x_tmp
+for i in range(nbands-1):
+    x=np.concatenate((x,x_tmp),axis=0)
+band_up=np.concatenate((x,data['E_up'].reshape(len(data['E_up']),1)),axis=1)
+band_dw=np.concatenate((x,data['E_dw'].reshape(len(data['E_dw']),1)),axis=1)
+
+header='kpoints        Energy          s         py         pz         px        dxy        dyz        dz2        dxz        dx2      Total'
+for i in range(nions):
+    t_up=np.concatenate((band_up,pband[i]['up']),axis=1)
+    t_dw=np.concatenate((band_dw,pband[i]['dw']),axis=1)
+    np.savetxt(str(i+1)+'_up.dat',t_up,'%.8f',header=header)
+    np.savetxt(str(i+1)+'_dw.dat',t_dw,'%.8f',header=header)
+
+elements=lines[5].split()
+nelements=[int(i) for i in lines[6].split()]
+pelements_up={}
+pelements_dw={}
+for num,i in enumerate(nelements):
+    pelements_up[elements[num]]=np.zeros(np.shape(pband[0]['up']))
+    pelements_dw[elements[num]]=np.zeros(np.shape(pband[0]['dw']))
+    if num==0:
+        begin=0
+        end=i
+    else:
+        begin=np.sum(nelements[:num])
+        end=np.sum(nelements[:num+1])
+    # print(begin,end)
+    for j in range(begin,end):
+        pelements_up[elements[num]]=pelements_up[elements[num]]+pband[j]['up']
+        pelements_dw[elements[num]]=pelements_dw[elements[num]]+pband[j]['dw']
+    pelements_up[elements[num]]=np.concatenate((band_up,pelements_up[elements[num]]),axis=1)
+    pelements_dw[elements[num]]=np.concatenate((band_dw,pelements_dw[elements[num]]),axis=1)
+    np.savetxt(elements[num]+'_up.dat',pelements_up[elements[num]],'%.8f',header=header)
+    np.savetxt(elements[num]+'_dw.dat',pelements_dw[elements[num]],'%.8f',header=header)
+        
