@@ -1,0 +1,33 @@
+#!/bin/sh
+#SBATCH -p amd_m9_768
+#SBATCH -n 256
+#SBATCH -J phonopy
+#SBATCH -N 1
+#SBATCH --exclusive
+
+#source ~/software/anaconda3/bin/activate phonopy-py313
+
+#step 1
+phonopy --pa auto --rd 500 -c POSCAR --dim='4 4 4' --amin 0.03 --amax 0.8
+
+#step 2 (after finish vasp calculations)
+#phonopy --sp -f {001..999}/vasprun.xml 1000/vasprun.xml
+#conv=`cat conv.dat`
+#phonopy --sp -f $conv
+#phonopy-load phonopy_disp.yaml --sp -f $conv
+
+#xz phonopy_params.yaml
+
+#step 3
+#phonopy-load phonopy_params.yaml.xz --pypolymlp --mlp-params="ntrain=200, ntest=50"
+#phonopy-load phonopy_params.yaml.xz --pypolymlp --sscha 10 --rd-temperature 300 --rd 1000
+
+#step 4
+#for i in {1..10}
+#do
+#phonopy-load phonopy_sscha_fc_$i.yaml.xz --band auto --band-points 101 -s -p
+#mv band.yaml band-$i.yaml
+#done
+
+#step 5
+#phonopy-bandplot band-{1..10}.yaml --legend -o band_cov_300K.pdf
